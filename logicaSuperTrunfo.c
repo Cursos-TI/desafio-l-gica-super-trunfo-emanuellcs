@@ -1,8 +1,3 @@
-// super_trunfo.c
-// Nível Mestre — Super Trunfo: Países (Cidades)
-// Autor: Você + Copilot
-// Compilar: gcc -std=c11 -Wall -Wextra -O2 super_trunfo.c -o super_trunfo
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
