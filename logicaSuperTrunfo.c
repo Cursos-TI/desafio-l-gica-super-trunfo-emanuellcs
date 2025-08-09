@@ -298,7 +298,7 @@ static void exibir_valor(const Carta* c, Atributo a) {
     const AtributoInfo* info = get_attr_info(a);
     long double v = attr_value_ld(c, a);
     if (info->inteiro)
-        printf("%s: %llu %s", info->nome, (unsigned long long)llround((long long)v), info->unidade);
+        printf("%s: %llu %s", info->nome, (unsigned long long) llroundl(v), info->unidade);
     else
         printf("%s: %.6Lf %s", info->nome, v, info->unidade);
 }
@@ -315,56 +315,67 @@ static void explicar_resultado(const Carta* c1, const Carta* c2, Atributo a1, At
     printf("  Carta 2 -> "); exibir_valor(c2, a2); printf("\n");
 }
 
+/*
+ * Nova implementação de comparar_duplo:
+ * - Determina vencedor de cada atributo individualmente (1=C1, 2=C2, 0=empate)
+ * - Vencedor final só existe se o mesmo jogador venceu em AMBOS os atributos
+ * - Em qualquer outro caso (empate em algum atributo, vitória dividida), resultado é EMPATE
+ */
 static void comparar_duplo(const Carta* c1, const Carta* c2, Atributo prim, Atributo sec) {
     const AtributoInfo* ip = get_attr_info(prim);
     const AtributoInfo* isec = get_attr_info(sec);
 
+    // --- Primário ---
     long double v1p = attr_value_ld(c1, prim);
     long double v2p = attr_value_ld(c2, prim);
-    int cmpP = cmp_long_double(v1p, v2p, ip->inteiro);
+    int resP = cmp_long_double(v1p, v2p, ip->inteiro);
 
-    // Decisão primária com operador ternário:
-    int vencedorPrimario = (cmpP == 0) ? -1 : (ip->menorVence ? (cmpP < 0 ? 1 : 2) : (cmpP > 0 ? 1 : 2));
-    // -1 significa "empate no primário"
-
-    int vencedorFinal = 0;
-    if (vencedorPrimario == -1) {
-        // Desempate pelo secundário
-        long double v1s = attr_value_ld(c1, sec);
-        long double v2s = attr_value_ld(c2, sec);
-        int cmpS = cmp_long_double(v1s, v2s, isec->inteiro);
-        vencedorFinal = (cmpS == 0) ? 0 : (isec->menorVence ? (cmpS < 0 ? 1 : 2) : (cmpS > 0 ? 1 : 2));
-    } else {
-        vencedorFinal = vencedorPrimario;
+    int vencedorPrimarioAtributo = 0; // 0 = empate, 1 = C1, 2 = C2
+    if (resP != 0) {
+        vencedorPrimarioAtributo = (ip->menorVence && resP < 0) || (!ip->menorVence && resP > 0) ? 1 : 2;
     }
 
+    // --- Secundário ---
+    long double v1s = attr_value_ld(c1, sec);
+    long double v2s = attr_value_ld(c2, sec);
+    int resS = cmp_long_double(v1s, v2s, isec->inteiro);
+
+    int vencedorSecundarioAtributo = 0; // 0 = empate, 1 = C1, 2 = C2
+    if (resS != 0) {
+        vencedorSecundarioAtributo = (isec->menorVence && resS < 0) || (!isec->menorVence && resS > 0) ? 1 : 2;
+    }
+
+    // --- Determinar vencedor final conforme regra estrita do nível Mestre ---
+    int vencedorFinal = 0; // 0 = empate
+    if (vencedorPrimarioAtributo == 1 && vencedorSecundarioAtributo == 1) {
+        vencedorFinal = 1;
+    } else if (vencedorPrimarioAtributo == 2 && vencedorSecundarioAtributo == 2) {
+        vencedorFinal = 2;
+    } else {
+        vencedorFinal = 0; // Empate em qualquer outro cenário
+    }
+
+    // Exibe detalhes
     explicar_resultado(c1, c2, prim, sec);
 
+    // Mensagem do resultado final
     if (vencedorFinal == 0) {
-        printf("\nResultado: EMPATE! As cartas são equivalentes nos dois atributos.\n");
+        printf("\nResultado: EMPATE! Nenhuma carta venceu em ambos os atributos escolhidos.\n");
+        // Informação adicional sobre vencedores parciais (útil para debug/explicação)
+        printf("Situação por atributo:\n");
+        printf("- Primário: %s\n", (vencedorPrimarioAtributo == 0) ? "EMPATE" : (vencedorPrimarioAtributo == 1 ? "Carta 1" : "Carta 2"));
+        printf("- Secundário: %s\n", (vencedorSecundarioAtributo == 0) ? "EMPATE" : (vencedorSecundarioAtributo == 1 ? "Carta 1" : "Carta 2"));
     } else {
         const Carta* vencedora = (vencedorFinal == 1) ? c1 : c2;
-        const Carta* perdedora = (vencedorFinal == 1) ? c2 : c1;
         printf("\nResultado: Carta %d venceu! (%s - %s)\n",
                vencedorFinal, vencedora->codigo, vencedora->cidade);
-
-        // Justificativa curta
-        if (vencedorPrimario == -1) {
-            printf("Desempate decidido pelo atributo secundário.\n");
-        } else {
-            printf("Vitória decidida pelo atributo primário.\n");
-        }
-
-        // Extra: destacar diferenças numéricas
-        printf("\nDiferenças numéricas:\n");
-        long double dvp = fabsl(v1p - v2p);
-        long double v1s = attr_value_ld(c1, sec);
-        long double v2s = attr_value_ld(c2, sec);
-        long double dvs = fabsl(v1s - v2s);
-
-        printf("- |%s(C1) - %s(C2)| = %.6Lf\n", get_attr_info(prim)->nome, get_attr_info(prim)->nome, dvp);
-        printf("- |%s(C1) - %s(C2)| = %.6Lf\n", get_attr_info(sec)->nome,  get_attr_info(sec)->nome,  dvs);
+        printf("Motivo: venceu EM TODOS os atributos escolhidos (primário e secundário).\n");
     }
+
+    // Extra: destacar diferenças numéricas
+    printf("\nDiferenças numéricas:\n");
+    printf("- |%s(C1) - %s(C2)| = %.6Lf\n", get_attr_info(prim)->nome, get_attr_info(prim)->nome, fabsl(v1p - v2p));
+    printf("- |%s(C1) - %s(C2)| = %.6Lf\n", get_attr_info(sec)->nome,  get_attr_info(sec)->nome,  fabsl(v1s - v2s));
     printf("\n");
 }
 
